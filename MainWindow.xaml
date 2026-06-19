@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:ui="http://schemas.modernwpf.com/2019"
         ui:WindowHelper.UseModernWindowStyle="True"
-        Title="DS3231 RTC + GPIO (HID)" Height="560" Width="460" ResizeMode="NoResize"
+        Title="DS3231 RTC + GPIO (HID)" Height="560" Width="598" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen">
     <Grid Margin="16">
         <Grid.RowDefinitions>
