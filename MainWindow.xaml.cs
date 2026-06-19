@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Media;
 using System.Windows.Threading;
 using HidSharp;
 
@@ -9,14 +10,18 @@ public partial class MainWindow : Window
     private const int VID = 0x2E8A;
     private const int PID = 0x4003;
 
-    private const byte CMD_SET  = 0x01;
-    private const byte CMD_GET  = 0x02;
-    private const byte RSP_OK   = 0x01;
-    private const byte RSP_TIME = 0x03;
+    private const byte CMD_SET   = 0x01;
+    private const byte CMD_GET   = 0x02;
+    private const byte CMD_LED   = 0x03;
+    private const byte CMD_INPUT = 0x04;
+    private const byte RSP_OK    = 0x01;
+    private const byte RSP_TIME  = 0x03;
+    private const byte RSP_INPUT = 0x04;
 
     private HidStream? _stream;
     private readonly DispatcherTimer _clockTimer;
     private readonly DispatcherTimer _rtcTimer;
+    private readonly DispatcherTimer _inputTimer;
     private bool _busy;
 
     public MainWindow()
@@ -29,6 +34,9 @@ public partial class MainWindow : Window
 
         _rtcTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _rtcTimer.Tick += (_, _) => ReadRtcTime();
+
+        _inputTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(100) };
+        _inputTimer.Tick += (_, _) => ReadInputs();
 
         Closed += (_, _) => Disconnect();
     }
@@ -57,9 +65,12 @@ public partial class MainWindow : Window
             btnConnect.Content = "Disconnect";
             btnSyncTime.IsEnabled = true;
             btnReadTime.IsEnabled = true;
+            grpLed.IsEnabled = true;
+            grpInput.IsEnabled = true;
             txtStatus.Text = $"Connected: {device.GetProductName()}";
-            txtStatus.Foreground = System.Windows.Media.Brushes.Green;
+            txtStatus.Foreground = Brushes.Green;
             _rtcTimer.Start();
+            _inputTimer.Start();
             Log($"Connected via HID: {device.DevicePath}");
         }
         catch (Exception ex)
@@ -71,31 +82,33 @@ public partial class MainWindow : Window
     private void Disconnect()
     {
         _rtcTimer.Stop();
+        _inputTimer.Stop();
         try { _stream?.Close(); } catch { }
         _stream = null;
         _busy = false;
         btnConnect.Content = "Connect";
         btnSyncTime.IsEnabled = false;
         btnReadTime.IsEnabled = false;
+        grpLed.IsEnabled = false;
+        grpInput.IsEnabled = false;
         txtStatus.Text = "Disconnected";
-        txtStatus.Foreground = System.Windows.Media.Brushes.Gray;
+        txtStatus.Foreground = Brushes.Gray;
         txtRtcTime.Text = "--:--:--";
         txtTemp.Text = "";
+        indIn0.Background = indIn1.Background = indIn2.Background = Brushes.Gray;
     }
 
     private byte[]? SendReport(byte[] data)
     {
         if (_stream == null) return null;
 
-        // HidSharp: byte[0] = report ID (0 = no report ID), then 64 bytes data
         var outBuf = new byte[65];
-        outBuf[0] = 0x00; // report ID
+        outBuf[0] = 0x00;
         Array.Copy(data, 0, outBuf, 1, Math.Min(data.Length, 64));
 
         _stream.Write(outBuf);
 
         var inBuf = _stream.Read();
-        // inBuf[0] = report ID, [1..] = data
         if (inBuf.Length > 1)
         {
             var result = new byte[inBuf.Length - 1];
@@ -170,14 +183,68 @@ public partial class MainWindow : Window
             txtTemp.Text = $"{tempInt}.{tempFrac}°C";
         }
         catch (TimeoutException) { }
-        catch (Exception)
+        catch (Exception) { Disconnect(); }
+        finally { _busy = false; }
+    }
+
+    private void Led_Click(object sender, RoutedEventArgs e)
+    {
+        if (_stream == null || _busy) return;
+
+        _busy = true;
+        try
         {
+            byte mask = 0;
+            if (chkLed0.IsChecked == true) mask |= 0x01;
+            if (chkLed1.IsChecked == true) mask |= 0x02;
+            if (chkLed2.IsChecked == true) mask |= 0x04;
+            if (chkLed3.IsChecked == true) mask |= 0x08;
+
+            var cmd = new byte[64];
+            cmd[0] = CMD_LED;
+            cmd[1] = mask;
+
+            var resp = SendReport(cmd);
+            if (resp != null && resp[0] == RSP_OK)
+                Log($"LED set: 0b{Convert.ToString(mask, 2).PadLeft(4, '0')}");
+            else
+                Log("LED command failed");
+        }
+        catch (Exception ex)
+        {
+            Log($"Error: {ex.Message}");
             Disconnect();
         }
-        finally
+        finally { _busy = false; }
+    }
+
+    private void ReadInputs()
+    {
+        if (_stream == null || _busy) return;
+
+        _busy = true;
+        try
         {
-            _busy = false;
+            var cmd = new byte[64];
+            cmd[0] = CMD_INPUT;
+
+            var resp = SendReport(cmd);
+            if (resp == null || resp[0] != RSP_INPUT) return;
+
+            byte inputs = resp[1];
+            indIn0.Background = (inputs & 0x01) != 0 ? Brushes.LimeGreen : Brushes.Gray;
+            indIn1.Background = (inputs & 0x02) != 0 ? Brushes.LimeGreen : Brushes.Gray;
+            indIn2.Background = (inputs & 0x04) != 0 ? Brushes.LimeGreen : Brushes.Gray;
+
+            byte leds = resp[2];
+            chkLed0.IsChecked = (leds & 0x01) != 0;
+            chkLed1.IsChecked = (leds & 0x02) != 0;
+            chkLed2.IsChecked = (leds & 0x04) != 0;
+            chkLed3.IsChecked = (leds & 0x08) != 0;
         }
+        catch (TimeoutException) { }
+        catch (Exception) { Disconnect(); }
+        finally { _busy = false; }
     }
 
     private void Log(string msg)
