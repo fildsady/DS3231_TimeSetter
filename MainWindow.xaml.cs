@@ -1,7 +1,9 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using HidSharp;
+using ModernWpf;
 
 namespace DS3231_TimeSetter;
 
@@ -245,6 +247,16 @@ public partial class MainWindow : Window
         catch (TimeoutException) { }
         catch (Exception) { Disconnect(); }
         finally { _busy = false; }
+    }
+
+    private void CmbTheme_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (cmbTheme.SelectedIndex == 0)
+            ThemeManager.Current.ApplicationTheme = null;
+        else if (cmbTheme.SelectedIndex == 1)
+            ThemeManager.Current.ApplicationTheme = ApplicationTheme.Light;
+        else
+            ThemeManager.Current.ApplicationTheme = ApplicationTheme.Dark;
     }
 
     private void Log(string msg)
